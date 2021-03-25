@@ -10,8 +10,8 @@ namespace Vintagestory.ServerMods.WorldEdit
     {
         void Init(WorldEditWorkspace workspace, IBlockAccessorRevertable blockAccess);
 
-        void OnBuild(WorldEdit worldEdit, BlockPos pos, ushort oldBlockId, BlockFacing onBlockFace, Vec3f hitPosition);
-        void OnBreak(WorldEdit worldEdit, BlockPos pos, ushort oldBlockId, BlockFacing onBlockFace, Vec3f hitPosition);
+        void OnBuild(WorldEdit worldEdit, BlockPos pos, int oldBlockId, BlockFacing onBlockFace, Vec3f hitPosition);
+        void OnBreak(WorldEdit worldEdit, BlockPos pos, BlockFacing onBlockFace, Vec3f hitPosition, ref EnumHandling handling);
         bool OnWorldEditCommand(WorldEdit worldEdit, string[] args);
         Vec3i Size { get; }
     }
@@ -51,7 +51,7 @@ namespace Vintagestory.ServerMods.WorldEdit
 
         }
 
-        public virtual void OnBuild(WorldEdit worldEdit, ushort oldBlockId, BlockSelection blockSel, ItemStack withItemStack)
+        public virtual void OnBuild(WorldEdit worldEdit, int oldBlockId, BlockSelection blockSel, ItemStack withItemStack)
         {
             Block placedBlock = blockAccessRev.GetBlock(blockSel.Position);
             BlockPos targetPos = blockSel.Position.Copy();
@@ -70,9 +70,9 @@ namespace Vintagestory.ServerMods.WorldEdit
             }
         }
 
-        public virtual void OnBreak(WorldEdit worldEdit, ushort oldBlockId, BlockSelection blockSel)
+        public virtual void OnBreak(WorldEdit worldEdit, BlockSelection blockSel, ref EnumHandling handling)
         {
-            Block block = blockAccessRev.GetBlock(blockSel.Position);
+            Block oldblock = blockAccessRev.GetBlock(blockSel.Position);
             BlockPos targetPos = blockSel.Position.Copy();
 
             if (workspace.ToolOffsetMode == EnumToolOffsetMode.Attach)
@@ -82,19 +82,22 @@ namespace Vintagestory.ServerMods.WorldEdit
                 targetPos.Z += workspace.ToolInstance.Size.Z / 2 * blockSel.Face.Normali.Z;
             }
 
-            if (ApplyToolBreak(worldEdit, block, oldBlockId, blockSel, targetPos))
+            if (ApplyToolBreak(worldEdit, oldblock, blockSel, targetPos, ref handling))
             {
-                blockAccessRev.SetHistoryStateBlock(blockSel.Position.X, blockSel.Position.Y, blockSel.Position.Z, oldBlockId, blockAccessRev.GetStagedBlockId(blockSel.Position.X, blockSel.Position.Y, blockSel.Position.Z));
+                if (handling == EnumHandling.PassThrough)
+                {
+                    blockAccessRev.SetHistoryStateBlock(blockSel.Position.X, blockSel.Position.Y, blockSel.Position.Z, oldblock.Id, blockAccessRev.GetStagedBlockId(blockSel.Position.X, blockSel.Position.Y, blockSel.Position.Z));
+                }
                 blockAccessRev.Commit();
             }
         }
 
-        public virtual bool ApplyToolBuild(WorldEdit worldEdit, Block block, ushort oldBlockId, BlockSelection blockSel, BlockPos targetPos, ItemStack withItemStack)
+        public virtual bool ApplyToolBuild(WorldEdit worldEdit, Block block, int oldBlockId, BlockSelection blockSel, BlockPos targetPos, ItemStack withItemStack)
         {
             return false;
         }
 
-        public virtual bool ApplyToolBreak(WorldEdit worldEdit, Block block, ushort oldBlockId, BlockSelection blockSel, BlockPos targetPos)
+        public virtual bool ApplyToolBreak(WorldEdit worldEdit, Block oldblock, BlockSelection blockSel, BlockPos targetPos, ref EnumHandling handling)
         {
             return false;
         }

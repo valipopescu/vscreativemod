@@ -118,18 +118,19 @@ namespace Vintagestory.ServerMods.WorldEdit
         }
 
        
-        public override void OnBreak(WorldEdit worldEdit, ushort oldBlockId, BlockSelection blockSel)
+        public override void OnBreak(WorldEdit worldEdit, BlockSelection blockSel, ref EnumHandling handling)
         {
-            OnUse(worldEdit, blockSel.Position, oldBlockId, -1, null);
+            handling = EnumHandling.PassThrough;
+            OnUse(worldEdit, blockSel.Position, 0, -1, null);
         }
 
-        public override void OnBuild(WorldEdit worldEdit, ushort oldBlockId, BlockSelection blockSel, ItemStack withItemStack)
+        public override void OnBuild(WorldEdit worldEdit, int oldBlockId, BlockSelection blockSel, ItemStack withItemStack)
         {
             OnUse(worldEdit, blockSel.Position, oldBlockId, 1, withItemStack);
         }
 
 
-        void OnUse(WorldEdit worldEdit, BlockPos pos, ushort oldBlockId, int sign, ItemStack withItemStack)
+        void OnUse(WorldEdit worldEdit, BlockPos pos, int oldBlockId, int sign, ItemStack withItemStack)
         {
             if (Radius <= 0) return;
 

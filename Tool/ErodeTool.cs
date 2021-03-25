@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Globalization;
 using Vintagestory.API.Common;
+using Vintagestory.API.Config;
 using Vintagestory.API.MathTools;
 
 namespace Vintagestory.ServerMods.WorldEdit
@@ -87,7 +89,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                     if (args.Length > 1)
                     {
                         float size;
-                        float.TryParse(args[1], out size);
+                        float.TryParse(args[1], NumberStyles.Any, GlobalConstants.DefaultCultureInfo, out size);
                         BrushRadius = size;
                     }
 
@@ -110,7 +112,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                     if (args.Length > 1)
                     {
                         int size;
-                        int.TryParse(args[1], out size);
+                        int.TryParse(args[1], NumberStyles.Any, GlobalConstants.DefaultCultureInfo, out size);
                         KernelRadius = size;
                     }
 
@@ -135,7 +137,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                     if (args.Length > 1)
                     {
                         int iters;
-                        int.TryParse(args[1], out iters);
+                        int.TryParse(args[1], NumberStyles.Any, GlobalConstants.DefaultCultureInfo, out iters);
                         Iterations = iters;
                     }
 
@@ -160,12 +162,12 @@ namespace Vintagestory.ServerMods.WorldEdit
 
         }
 
-        public override void OnBreak(WorldEdit worldEdit, ushort oldBlockId, BlockSelection blockSel)
+        public override void OnBreak(WorldEdit worldEdit, BlockSelection blockSel, ref EnumHandling handling)
         {
             
         }
 
-        public override void OnBuild(WorldEdit worldEdit, ushort oldBlockId, BlockSelection blockSel, ItemStack withItemStack)
+        public override void OnBuild(WorldEdit worldEdit, int oldBlockId, BlockSelection blockSel, ItemStack withItemStack)
         {
             if (BrushRadius <= 0) return;
 

@@ -1,6 +1,7 @@
 ﻿using System.IO;
 using Vintagestory.API.Common;
 using Vintagestory.API.Config;
+using Vintagestory.API.Datastructures;
 using Vintagestory.API.Server;
 using Vintagestory.GameContent;
 
@@ -26,7 +27,7 @@ namespace Vintagestory.ServerMods
 
         public override void StartPre(ICoreAPI api)
         {
-            api.Assets.AddPathOrigin("game", Path.Combine(GamePaths.AssetsPath, "creative"));
+            api.Assets.AddModOrigin("game", Path.Combine(GamePaths.AssetsPath, "creative"));
         }
 
         public override void Start(ICoreAPI api)
@@ -34,6 +35,10 @@ namespace Vintagestory.ServerMods
             base.Start(api);
 
             api.RegisterItemClass("ItemMagicWand", typeof(ItemMagicWand));
+
+            api.RegisterBlockClass("BlockCommand", typeof(BlockCommand));
+
+            api.RegisterBlockEntityClass("BECommand", typeof(BlockEntityCommand));
         }
 
         public override void StartServerSide(ICoreServerAPI api)
@@ -47,7 +52,10 @@ namespace Vintagestory.ServerMods
 
         private void Event_PlayerCreate(IServerPlayer byPlayer)
         {
-            if (sapi.WorldManager.SaveGame.PlayStyle == "creativebuilding")
+            ITreeAttribute worldConfig = sapi.WorldManager.SaveGame.WorldConfiguration;
+            string mode = worldConfig.GetString("gameMode");
+
+            if (mode == "creative")
             {
                 byPlayer.WorldData.CurrentGameMode = EnumGameMode.Creative;
                 byPlayer.WorldData.PickingRange = 100;
@@ -59,7 +67,6 @@ namespace Vintagestory.ServerMods
         {
             if (sapi.WorldManager.SaveGame.PlayStyle == "creativebuilding")
             {
-                sapi.WorldManager.SaveGame.AllowCreativeMode = true;
                 sapi.WorldManager.SaveGame.EntitySpawning = false;
             }
         }

@@ -1,13 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
-using System.Windows.Forms;
+using System.Text;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
-using Vintagestory.API.Common.Entities;
 using Vintagestory.API.Config;
+using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
+using Vintagestory.API.Util;
 
 namespace Vintagestory.ServerMods.WorldEdit
 {
@@ -61,17 +63,18 @@ namespace Vintagestory.ServerMods.WorldEdit
         public override void StartServerSide(ICoreServerAPI sapi)
         {
             this.sapi = sapi;
-            
+
             exportFolderPath = sapi.GetOrCreateDataPath("WorldEdit");
 
-            sapi.RegisterPrivilege("worldedit", "Ability to use world edit tools");
+            sapi.Permissions.RegisterPrivilege("worldedit", "Ability to use world edit tools");
 
-            sapi.RegisterCommand("we", "World edit tools", "[ms|me|mc|mex|clear|mclear|mfill|imp|impr|blu|brs|brm|ers|range|tool|on|off|undo|redo|sovp|hp|sp|block|...]", CmdEditServer, "worldedit");
+            sapi.RegisterCommand("we", "World edit tools", "[ms|me|mc|mex|clear|mdelete|mfill|imp|impr|blu|brs|brm|ers|range|tool|on|off|undo|redo|sovp|block|...]", CmdEditServer, "worldedit");
 
             sapi.Event.PlayerJoin += OnPlayerJoin;
 
             sapi.Event.PlayerSwitchGameMode += OnSwitchedGameMode;
-            sapi.Event.DidBreakBlock += OnDidBreakBlock;
+
+            sapi.Event.BreakBlock += OnBreakBlock;
             sapi.Event.DidPlaceBlock += OnDidBuildBlock;
             sapi.Event.SaveGameLoaded += OnLoad;
             sapi.Event.GameWorldSave += OnSave;
@@ -104,7 +107,8 @@ namespace Vintagestory.ServerMods.WorldEdit
                     this.fromPlayer = fromPlayer;
                     impTool.SetBlockDatas(this, new BlockSchematic[] { schematic });
                     fromPlayer.SendMessage(GlobalConstants.CurrentChatGroup, Lang.Get("Ok, schematic loaded into clipboard."), EnumChatType.CommandSuccess);
-                } else
+                }
+                else
                 {
                     fromPlayer.SendMessage(GlobalConstants.CurrentChatGroup, Lang.Get("Error loading schematic: {0}", error), EnumChatType.CommandError);
                 }
@@ -113,27 +117,40 @@ namespace Vintagestory.ServerMods.WorldEdit
 
         private void OnChangePlayerModeMessage(IPlayer fromPlayer, ChangePlayerModePacket plrmode)
         {
+            IServerPlayer plr = fromPlayer as IServerPlayer;
+
+            bool freeMoveAllowed =  plr.HasPrivilege(Privilege.freemove);
+            bool gameModeAllowed = plr.HasPrivilege(Privilege.gamemode);
+            bool pickRangeAllowed = plr.HasPrivilege(Privilege.pickingrange);
+
             if (plrmode.axisLock != null)
             {
                 fromPlayer.WorldData.FreeMovePlaneLock = (EnumFreeMovAxisLock)plrmode.axisLock;
             }
-            if (plrmode.pickingRange != null)
+            if (plrmode.pickingRange != null && pickRangeAllowed)
             {
                 fromPlayer.WorldData.PickingRange = (float)plrmode.pickingRange;
             }
             if (plrmode.fly != null)
             {
-                fromPlayer.WorldData.FreeMove = (bool)plrmode.fly;
+                fromPlayer.WorldData.FreeMove = (bool)plrmode.fly && freeMoveAllowed;
             }
             if (plrmode.noclip != null)
             {
-                fromPlayer.WorldData.NoClip = (bool)plrmode.noclip;
+                fromPlayer.WorldData.NoClip = (bool)plrmode.noclip && freeMoveAllowed;
             }
         }
 
         private void OnRequestWorkSpaceMessage(IPlayer fromPlayer, RequestWorkSpacePacket networkMessage)
         {
             SendPlayerWorkSpace(fromPlayer.PlayerUID);
+        }
+
+        public WorldEditWorkspace GetWorkSpace(string playerUid)
+        {
+            WorldEditWorkspace space = null;
+            workspaces.TryGetValue(playerUid, out space);
+            return space;
         }
 
         public void SendPlayerWorkSpace(string playerUID)
@@ -167,14 +184,14 @@ namespace Vintagestory.ServerMods.WorldEdit
 
             WorldEditWorkspace workspace = GetOrCreateWorkSpace(player);
 
-            IBlockAccessorRevertable revertableBlockAccess = sapi.WorldManager.GetBlockAccessorRevertable(true, true);
+            IBlockAccessorRevertable revertableBlockAccess = sapi.World.GetBlockAccessorRevertable(true, true);
 
             // Initialize all tools once to build up the workspace for the client gui tool options
             foreach (var val in ToolRegistry.ToolTypes)
             {
                 ToolRegistry.InstanceFromType(val.Key, workspace, revertableBlockAccess);
             }
-        
+
 
             if (workspace.ToolsEnabled)
             {
@@ -185,7 +202,7 @@ namespace Vintagestory.ServerMods.WorldEdit
 
                     sapi.World.HighlightBlocks(player, (int)EnumHighlightSlot.Brush, workspace.ToolInstance.GetBlockHighlights(this), workspace.ToolInstance.GetBlockHighlightColors(this), mode);
                 }
-                
+
             }
             else
             {
@@ -223,7 +240,7 @@ namespace Vintagestory.ServerMods.WorldEdit
 
                     while (count-- > 0)
                     {
-                        IBlockAccessorRevertable revertableBlockAccess = sapi.WorldManager.GetBlockAccessorRevertable(true, true);
+                        IBlockAccessorRevertable revertableBlockAccess = sapi.World.GetBlockAccessorRevertable(true, true);
                         WorldEditWorkspace workspace = new WorldEditWorkspace(sapi.World, revertableBlockAccess);
                         workspace.FromBytes(reader);
                         if (workspace.PlayerUID == null)
@@ -234,7 +251,8 @@ namespace Vintagestory.ServerMods.WorldEdit
                         workspaces[workspace.PlayerUID] = workspace;
                     }
                 }
-            } catch (Exception)
+            }
+            catch (Exception)
             {
                 sapi.Server.LogEvent("Exception thrown when trying to load worldedit workspaces. Will ignore.");
             }
@@ -269,7 +287,7 @@ namespace Vintagestory.ServerMods.WorldEdit
             }
             else
             {
-                IBlockAccessorRevertable revertableBlockAccess = sapi.WorldManager.GetBlockAccessorRevertable(true, true);
+                IBlockAccessorRevertable revertableBlockAccess = sapi.World.GetBlockAccessorRevertable(true, true);
                 workspaces[playeruid] = new WorldEditWorkspace(sapi.World, revertableBlockAccess);
                 workspaces[playeruid].PlayerUID = playeruid;
                 return workspaces[playeruid];
@@ -292,7 +310,7 @@ namespace Vintagestory.ServerMods.WorldEdit
 
             BlockPos centerPos = player.Entity.Pos.AsBlockPos;
             IPlayerInventoryManager plrInv = player.InventoryManager;
-            IItemStack stack = plrInv.ActiveHotbarSlot.Itemstack;
+            ItemStack stack = plrInv.ActiveHotbarSlot.Itemstack;
 
 
             if (args.Length == 0)
@@ -307,7 +325,7 @@ namespace Vintagestory.ServerMods.WorldEdit
             if ((cmd == "tr" || cmd == "tsx" || cmd == "tsy" || cmd == "tsz") && args.Length > 0)
             {
                 double val = 0;
-                if (double.TryParse(args[0], out val))
+                if (double.TryParse(args[0], NumberStyles.Any, GlobalConstants.DefaultCultureInfo, out val))
                 {
                     if (val > 50 && serverOverloadProtection)
                     {
@@ -327,7 +345,7 @@ namespace Vintagestory.ServerMods.WorldEdit
 
                     if (args.Length > 0)
                     {
-                        if (!int.TryParse(args[0], out angle))
+                        if (!int.TryParse(args[0], NumberStyles.Any, GlobalConstants.DefaultCultureInfo, out angle))
                         {
                             Bad("Invalid Angle (not a number)");
                             break;
@@ -421,8 +439,8 @@ namespace Vintagestory.ServerMods.WorldEdit
                         return;
                     }
 
-                    sapi.World.BlockAccessor.SetBlock((ushort)stack.Id, centerPos.DownCopy());
-                    
+                    sapi.World.BlockAccessor.SetBlock(stack.Id, centerPos.DownCopy());
+
                     Good("Block placed");
 
                     break;
@@ -487,13 +505,12 @@ namespace Vintagestory.ServerMods.WorldEdit
 
                 case "t":
                     string toolname = null;
-                    
-                    if (args.Length > 0)
-                    {
-                        string suppliedToolname = args.PopAll();
+                    string suppliedToolname = args.PopAll();
 
+                    if (suppliedToolname.Length > 0)
+                    {
                         int toolId;
-                        if (int.TryParse(suppliedToolname, out toolId))
+                        if (int.TryParse(suppliedToolname, NumberStyles.Any, GlobalConstants.DefaultCultureInfo, out toolId))
                         {
                             if (toolId < 0)
                             {
@@ -504,8 +521,9 @@ namespace Vintagestory.ServerMods.WorldEdit
                             }
 
                             toolname = ToolRegistry.ToolTypes.GetKeyAtIndex(toolId);
-                        } else
-                        {   
+                        }
+                        else
+                        {
                             foreach (string name in ToolRegistry.ToolTypes.Keys)
                             {
                                 if (name.ToLowerInvariant().StartsWith(suppliedToolname.ToLowerInvariant()))
@@ -513,14 +531,14 @@ namespace Vintagestory.ServerMods.WorldEdit
                                     toolname = name;
                                     break;
                                 }
-                                
+
                             }
                         }
                     }
 
                     if (toolname == null)
                     {
-                        Bad("No such tool '"+toolname+"' registered");
+                        Bad("No such tool '" + suppliedToolname + "' registered");
                         break;
                     }
 
@@ -542,10 +560,11 @@ namespace Vintagestory.ServerMods.WorldEdit
                         int index = 0;
                         if (args.Length > 0)
                         {
-                            int.TryParse(args[0], out index);
+                            index = args[0].ToInt(0);
                         }
                         mode = (EnumToolOffsetMode)index;
-                    } catch (Exception) { }
+                    }
+                    catch (Exception) { }
 
                     workspace.ToolOffsetMode = mode;
 
@@ -560,9 +579,7 @@ namespace Vintagestory.ServerMods.WorldEdit
 
                     if (args.Length > 0)
                     {
-                        float range;
-                        float.TryParse(args[0], out range);
-                        pickingrange = range;
+                        pickingrange = args[0].ToFloat(GlobalConstants.DefaultPickingRange);
                     }
 
                     fromPlayer.WorldData.PickingRange = pickingrange;
@@ -594,7 +611,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                         BlockPos st = workspace.StartMarker;
                         BlockPos en = workspace.EndMarker;
                         serverChannel.SendPacket(new CopyToClipboardPacket() { Text = string.Format("/we mark {0} {1} {2} {3} {4} {5}\n/we mex {6}", st.X, st.Y, st.Z, en.X, en.Y, en.Z, args[0]) }, player);
-                        
+
                     }
                     break;
 
@@ -614,6 +631,23 @@ namespace Vintagestory.ServerMods.WorldEdit
                     Good("Ok, relighting complete");
                     break;
 
+
+                case "mgencode":
+                    if (workspace.StartMarker == null || workspace.EndMarker == null)
+                    {
+                        Bad("Please mark start and end position");
+                        break;
+                    }
+
+                    if (player.CurrentBlockSelection == null)
+                    {
+                        Bad("Please look at a block as well");
+                        break;
+                    }
+
+                    GenMarkedMultiblockCode(player);
+
+                    break;
 
                 case "imp":
 
@@ -651,14 +685,15 @@ namespace Vintagestory.ServerMods.WorldEdit
                     if (args.Length == 0)
                     {
                         Good("Import item/block resolving currently " + (!sapi.ObjectCache.ContainsKey("donotResolveImports") || (bool)sapi.ObjectCache["donotResolveImports"] == false ? "on" : "off"));
-                    } else
+                    }
+                    else
                     {
                         bool doreplace = (bool)args.PopBool(ReplaceMetaBlocks);
                         sapi.ObjectCache["donotResolveImports"] = !doreplace;
                         Good("Import item/block resolving now globally " + (doreplace ? "on" : "off"));
                     }
 
-                    
+
 
                     break;
 
@@ -667,7 +702,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                     BlockLineup(centerPos, args);
                     Good("Block lineup created");
                     break;
-                
+
 
                 // Mark start
                 case "ms":
@@ -709,10 +744,10 @@ namespace Vintagestory.ServerMods.WorldEdit
                     break;
 
 
-               /* case "mr":
-                    HandleRotateCommand(args.PopInt(), args.PopSingle());
+                case "mr":
+                    HandleRotateCommand(args.PopInt(), args.PopWord());
                     break;
-                    */
+
 
                 case "mmirn":
                     HandleMirrorCommand(BlockFacing.NORTH, args);
@@ -814,6 +849,7 @@ namespace Vintagestory.ServerMods.WorldEdit
 
                 // Marked clear
                 case "mc":
+                case "clear":
                     workspace.StartMarker = null;
                     workspace.EndMarker = null;
                     Good("Marked positions cleared");
@@ -838,7 +874,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                         return;
                     }
 
-                    
+
 
                     if (stack == null || stack.Class == EnumItemClass.Item)
                     {
@@ -846,28 +882,33 @@ namespace Vintagestory.ServerMods.WorldEdit
                         return;
                     }
 
-                    int filled = FillArea((ushort)stack.Id, workspace.StartMarker, workspace.EndMarker);
+                    int filled = FillArea(stack, workspace.StartMarker, workspace.EndMarker);
 
                     Good(filled + " marked blocks placed");
-
                     break;
 
-                // Clear marked
                 case "mclear":
                     {
-                        if(workspace.StartMarker == null || workspace.EndMarker == null)
+                        Bad("No such function, did you mean mdelete?");
+                        return;
+                    }
+
+                // Clear marked
+                case "mdelete":
+                    {
+                        if (workspace.StartMarker == null || workspace.EndMarker == null)
                         {
                             Bad("Start marker or end marker not set");
                             return;
                         }
 
-                        int cleared = FillArea(0, workspace.StartMarker, workspace.EndMarker);
-                        Good(cleared + " marked blocks cleared");
+                        int cleared = FillArea(null, workspace.StartMarker, workspace.EndMarker);
+                        Good(cleared + " marked blocks removed");
                     }
                     break;
 
                 // Clear area
-                case "clear":
+                case "delete":
                     {
                         if (args.Length < 1)
                         {
@@ -876,7 +917,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                         }
 
                         int size = 0;
-                        if (!int.TryParse(args[0], out size))
+                        if (!int.TryParse(args[0], NumberStyles.Any, GlobalConstants.DefaultCultureInfo, out size))
                         {
                             Bad("Invalide size param");
                             return;
@@ -885,13 +926,13 @@ namespace Vintagestory.ServerMods.WorldEdit
                         int height = 20;
                         if (args.Length > 1)
                         {
-                            int.TryParse(args[1], out height);
+                            int.TryParse(args[1], NumberStyles.Any, GlobalConstants.DefaultCultureInfo, out height);
                         }
 
 
-                        int cleared = FillArea(0, centerPos.AddCopy(-size, 0, -size), centerPos.AddCopy(size, height, size));
+                        int cleared = FillArea(null, centerPos.AddCopy(-size, 0, -size), centerPos.AddCopy(size, height, size));
 
-                        Good(cleared + " Blocks cleared");
+                        Good(cleared + " Blocks removed");
                     }
 
                     break;
@@ -902,10 +943,51 @@ namespace Vintagestory.ServerMods.WorldEdit
                     {
                         Bad("No such function " + cmd + ". Maybe wrong tool selected?");
                     }
-                    
+
                     break;
-                        
+
             }
+        }
+
+        private void GenMarkedMultiblockCode(IServerPlayer player)
+        {
+            BlockPos centerPos = player.CurrentBlockSelection.Position;
+            OrderedDictionary<int, int> blocks = new OrderedDictionary<int, int>();
+            List<Vec4i> offsets = new List<Vec4i>();
+
+            MultiblockStructure ms = new MultiblockStructure();
+
+            sapi.World.BlockAccessor.WalkBlocks(workspace.StartMarker, workspace.EndMarker, (block, pos) =>
+            {
+                if (block.Id == 0) return;
+
+                int blockNum = ms.GetOrCreateBlockNumber(block);
+                BlockOffsetAndNumber offset = new BlockOffsetAndNumber(pos.X - centerPos.X, pos.Y - centerPos.Y, pos.Z - centerPos.Z, blockNum);
+                ms.Offsets.Add(offset);
+            }, true);
+
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("multiblockStructure: {");
+            sb.AppendLine("\tblockNumbers: {");
+            foreach (var val in ms.BlockNumbers)
+            {
+                sb.AppendLine(string.Format("\t\t\"{0}\": {1},", val.Key.ToShortString(), val.Value));
+            }
+            sb.AppendLine("\t},");
+            sb.AppendLine("\toffsets: [");
+
+            foreach (var val in ms.Offsets)
+            {
+                sb.AppendLine(string.Format("\t\t{{ x: {0}, y: {1}, z: {2}, w: {3} }},", val.X, val.Y, val.Z, val.W));
+            }
+
+            sb.AppendLine("\t]");
+            sb.AppendLine("}");
+
+
+            sapi.World.Logger.Notification("Multiblockstructure centered around {0}:\n{1}", centerPos, sb.ToString());
+
+            Good("Json code written to server-main.txt");
         }
 
         public void SetStartPos(BlockPos pos)
@@ -1005,8 +1087,9 @@ namespace Vintagestory.ServerMods.WorldEdit
                 if (workspace.ToolInstance != null)
                 {
                     sapi.World.HighlightBlocks(fromPlayer, (int)EnumHighlightSlot.Brush, workspace.ToolInstance.GetBlockHighlights(this), workspace.ToolInstance.GetBlockHighlightColors(this), mode, EnumHighlightShape.Arbitrary);
-                }   
-            } else
+                }
+            }
+            else
             {
                 sapi.World.HighlightBlocks(fromPlayer, (int)EnumHighlightSlot.Brush, new List<BlockPos>(), new List<int>());
             }
@@ -1017,7 +1100,8 @@ namespace Vintagestory.ServerMods.WorldEdit
             if (workspace.StartMarker != null && workspace.EndMarker != null)
             {
                 sapi.World.HighlightBlocks(player, (int)EnumHighlightSlot.Selection, new List<BlockPos>(new BlockPos[] { workspace.StartMarker, workspace.EndMarker }), EnumHighlightBlocksMode.Absolute, EnumHighlightShape.Cube);
-            } else
+            }
+            else
             {
                 sapi.World.HighlightBlocks(player, (int)EnumHighlightSlot.Selection, new List<BlockPos>());
             }
@@ -1041,7 +1125,7 @@ namespace Vintagestory.ServerMods.WorldEdit
             int steps = 1;
             if (args.Length > 0)
             {
-                int.TryParse(args[0], out steps);
+                int.TryParse(args[0], NumberStyles.Any, GlobalConstants.DefaultCultureInfo, out steps);
             }
 
             workspace.revertableBlockAccess.ChangeHistoryState(steps * (redo ? -1 : 1));
@@ -1050,16 +1134,16 @@ namespace Vintagestory.ServerMods.WorldEdit
 
             Good(string.Format("Performed {0} {1} times.", redo ? "redo" : "undo", quantityChanged));
         }
-        
+
 
         private void BlockLineup(BlockPos pos, CmdArgs args)
         {
-            Block[] blocks = sapi.World.Blocks;
+            IList<Block> blocks = sapi.World.Blocks;
 
-            bool all = args.PopWord() == "all"; 
+            bool all = args.PopWord() == "all";
 
             List<Block> existingBlocks = new List<Block>();
-            for (int i = 0; i < blocks.Length; i++)
+            for (int i = 0; i < blocks.Count; i++)
             {
                 Block block = blocks[i];
 
@@ -1074,7 +1158,7 @@ namespace Vintagestory.ServerMods.WorldEdit
 
             int width = (int)Math.Sqrt(existingBlocks.Count);
 
-            FillArea(0, pos.AddCopy(0, 0, 0), pos.AddCopy(width + 1, 10, width + 1));
+            FillArea(null, pos.AddCopy(0, 0, 0), pos.AddCopy(width + 1, 10, width + 1));
 
             for (int i = 0; i < existingBlocks.Count; i++)
             {
@@ -1109,7 +1193,7 @@ namespace Vintagestory.ServerMods.WorldEdit
         }
 
 
-        private void OnDidBuildBlock(IServerPlayer byPlayer, ushort oldblockId, BlockSelection blockSel, ItemStack withItemStack)
+        private void OnDidBuildBlock(IServerPlayer byPlayer, int oldblockId, BlockSelection blockSel, ItemStack withItemStack)
         {
             this.fromPlayer = byPlayer;
             if (!CanUseWorldEdit(byPlayer)) return;
@@ -1121,7 +1205,7 @@ namespace Vintagestory.ServerMods.WorldEdit
             workspace.ToolInstance.OnBuild(this, oldblockId, blockSel.Clone(), withItemStack);
         }
 
-        private void OnDidBreakBlock(IServerPlayer byBplayer, ushort oldblockId, BlockSelection blockSel)
+        private void OnBreakBlock(IServerPlayer byBplayer, BlockSelection blockSel, ref float dropQuantityMultiplier, ref EnumHandling handling)
         {
             this.fromPlayer = byBplayer;
             if (!CanUseWorldEdit(byBplayer)) return;
@@ -1130,7 +1214,7 @@ namespace Vintagestory.ServerMods.WorldEdit
             if (!workspace.ToolsEnabled) return;
             if (workspace.ToolInstance == null) return;
 
-            workspace.ToolInstance.OnBreak(this, oldblockId, blockSel);
+            workspace.ToolInstance.OnBreak(this, blockSel, ref handling);
         }
 
         private BlockSchematic CopyArea(BlockPos start, BlockPos end)
@@ -1172,11 +1256,12 @@ namespace Vintagestory.ServerMods.WorldEdit
             string error = "";
 
             blockData = BlockSchematic.LoadFromFile(infilepath, ref error);
-            if (blockData == null) { 
+            if (blockData == null)
+            {
                 Bad(error);
                 return;
             }
-            
+
 
             PasteBlockData(blockData, startPos, origin);
         }
@@ -1193,7 +1278,8 @@ namespace Vintagestory.ServerMods.WorldEdit
             {
                 serverChannel.SendPacket<SchematicJsonPacket>(new SchematicJsonPacket() { Filename = filename, JsonCode = blockdata.ToJson() }, sendToPlayer);
                 Good(exported + " blocks schematic sent to client.");
-            } else
+            }
+            else
             {
                 string error = blockdata.Save(outfilepath);
                 if (error != null)
@@ -1206,7 +1292,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                 }
             }
 
-            
+
         }
 
 

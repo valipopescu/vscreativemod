@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Vintagestory.API.Common;
+using Vintagestory.API.Config;
 using Vintagestory.API.MathTools;
 
 namespace Vintagestory.ServerMods.WorldEdit
@@ -21,6 +23,7 @@ namespace Vintagestory.ServerMods.WorldEdit
     {
         public NormalizedSimplexNoise noiseGen = NormalizedSimplexNoise.FromDefaultOctaves(2, 0.05, 0.8, 0);
         Random rand = new Random();
+        LCGRandom lcgRand;
 
         public float Radius
         {
@@ -52,6 +55,8 @@ namespace Vintagestory.ServerMods.WorldEdit
             if (!workspace.FloatValues.ContainsKey("std.airBrushQuantity")) Quantity = 10;
             if (!workspace.IntValues.ContainsKey("std.airBrushApply")) Apply = EnumAirBrushApply.AnyFace;
             if (!workspace.IntValues.ContainsKey("std.airBrushMode")) Mode = EnumAirBrushMode.Add;
+
+            lcgRand = new LCGRandom(workspace.world.Seed);
         }
         
         public override Vec3i Size
@@ -73,7 +78,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                     if (args.Length > 1)
                     {
                         float size;
-                        float.TryParse(args[1], out size);
+                        float.TryParse(args[1], NumberStyles.Any, GlobalConstants.DefaultCultureInfo, out size);
                         Radius = size;
                     }
 
@@ -98,7 +103,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                     if (args.Length > 1)
                     {
                         float quant;
-                        float.TryParse(args[1], out quant);
+                        float.TryParse(args[1], NumberStyles.Any, GlobalConstants.DefaultCultureInfo, out quant);
                         Quantity = quant;
                     }
 
@@ -151,17 +156,18 @@ namespace Vintagestory.ServerMods.WorldEdit
             return false;
         }
 
-        public override void OnBreak(WorldEdit worldEdit, ushort oldBlockId, BlockSelection blockSel)
+        public override void OnBreak(WorldEdit worldEdit, BlockSelection blockSel, ref EnumHandling handling)
         {
-            OnApply(worldEdit, oldBlockId, blockSel, null, true);
+            handling = EnumHandling.PreventDefault;
+            OnApply(worldEdit, -1, blockSel, null, true);
         }
 
-        public override void OnBuild(WorldEdit worldEdit, ushort oldBlockId, BlockSelection blockSel, ItemStack withItemStack)
+        public override void OnBuild(WorldEdit worldEdit, int oldBlockId, BlockSelection blockSel, ItemStack withItemStack)
         {
             OnApply(worldEdit, oldBlockId, blockSel, withItemStack, false);
         }
 
-        public void OnApply(WorldEdit worldEdit, ushort oldBlockId, BlockSelection blockSel, ItemStack withItemStack, bool isbreak = false)
+        public void OnApply(WorldEdit worldEdit, int oldBlockId, BlockSelection blockSel, ItemStack withItemStack, bool isbreak = false)
         {
             if (Quantity == 0 || Radius == 0) return;
 
@@ -174,9 +180,9 @@ namespace Vintagestory.ServerMods.WorldEdit
             int quantityBlocks = (int)(GameMath.PI * radSq);
             if (!worldEdit.MayPlace(block, (int)q)) return;
 
-
-            worldEdit.sapi.World.BlockAccessor.SetBlock(oldBlockId, blockSel.Position);
-
+            if (oldBlockId >= 0) worldEdit.sapi.World.BlockAccessor.SetBlock(oldBlockId, blockSel.Position);
+            lcgRand.SetWorldSeed(rand.Next());
+            lcgRand.InitPositionSeed(blockSel.Position.X / blockAccessRev.ChunkSize, blockSel.Position.Z / blockAccessRev.ChunkSize);
 
             int xRadInt = (int)Math.Ceiling(Radius);
             int yRadInt = (int)Math.Ceiling(Radius);
@@ -199,12 +205,13 @@ namespace Vintagestory.ServerMods.WorldEdit
                         testblock = blockAccessRev.GetBlock(dpos);
                         if (testblock.Replaceable >= 6000) continue;
 
-                        for (int i = 0; i < BlockFacing.ALLFACES.Length; i++)
+                        for (int i = 0; i < BlockFacing.NumberOfFaces; i++)
                         {
                             if (Apply == EnumAirBrushApply.SelectedFace && BlockFacing.ALLFACES[i] != blockSel.Face) continue;
 
                             ddpos = dpos.AddCopy(BlockFacing.ALLFACES[i]);
-                            if (blockAccessRev.GetBlock(ddpos).Replaceable >= 6000)
+                            Block dblock = blockAccessRev.GetBlock(ddpos);
+                            if (dblock.Replaceable >= 6000 && (dblock.IsLiquid() == block.IsLiquid()))
                             {
                                 // We found an air block beside a solid block -> let's remember that air block and keep looking
                                 if (mode == EnumAirBrushMode.Add)
@@ -236,7 +243,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                     
                 if (mode == EnumAirBrushMode.Add)
                 {
-                    block.TryPlaceBlockForWorldGen(blockAccessRev, dpos, BlockFacing.UP, worldEdit.sapi.World.Rand);
+                    block.TryPlaceBlockForWorldGen(blockAccessRev, dpos, BlockFacing.UP, lcgRand);
                 } else
                 {
                     blockAccessRev.SetBlock(block.BlockId, dpos, withItemStack);
@@ -244,7 +251,11 @@ namespace Vintagestory.ServerMods.WorldEdit
                 
             }
 
-            blockAccessRev.SetHistoryStateBlock(blockSel.Position.X, blockSel.Position.Y, blockSel.Position.Z, oldBlockId, blockAccessRev.GetBlockId(blockSel.Position));
+            if (oldBlockId >= 0)
+            {
+                blockAccessRev.SetHistoryStateBlock(blockSel.Position.X, blockSel.Position.Y, blockSel.Position.Z, oldBlockId, blockAccessRev.GetBlockId(blockSel.Position));
+            }
+
             blockAccessRev.Commit();
 
 

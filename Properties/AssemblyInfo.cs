@@ -13,7 +13,7 @@ using Vintagestory.API.Config;
 //[assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("Tyron Madlener (Anego Studios)")]
 [assembly: AssemblyProduct("Vintage Story")]
-[assembly: AssemblyCopyright("Copyright © 2017 Anego Studios")]
+[assembly: AssemblyCopyright(GameVersion.CopyRight)]
 
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
@@ -41,9 +41,9 @@ using Vintagestory.API.Config;
 
 [assembly: ModInfo( "Creative Mode", "creative",
     Version = GameVersion.ShortGameVersion,
+    NetworkVersion = GameVersion.NetworkVersion,
     Description = "Adds extensive world editing capabilities through commands, a graphical user interface and super flat world generation",
     Authors = new[] { "Tyron" },
-    RequiredOnClient = false,
     WorldConfig = @"
     {
 	    playstyles: [
@@ -56,7 +56,11 @@ using Vintagestory.API.Config;
 			    worldConfig: {
 				    worldClimate: ""superflat"",
 				    gameMode: ""creative"",
-				    hoursPerDay: 2400
+				    hoursPerDay: ""2400"",
+					cloudypos: ""0.5"",
+					temporalStability: ""false"",
+                    temporalStorms: ""off"",
+					snowAccum: ""false""
 			    }
 		    }
 	    ],
@@ -67,4 +71,4 @@ using Vintagestory.API.Config;
 "
 )]
 
- [assembly: ModDependency("game")]
+[assembly: ModDependency("game")]

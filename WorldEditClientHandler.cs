@@ -10,6 +10,7 @@ using System.Windows.Forms;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Config;
+using Vintagestory.API.Util;
 
 namespace Vintagestory.ServerMods.WorldEdit
 {
@@ -65,7 +66,7 @@ namespace Vintagestory.ServerMods.WorldEdit
 
             if (!allow)
             {
-                capi.SendChatMessage("Server tried to send a schematic file, but it was rejected. To accept, set allowSaveFilesFromServer to true in clientsettings.json (be aware of potential security implications!).");
+                capi.ShowChatMessage("Server tried to send a schematic file, but it was rejected for safety reasons. To accept, set allowSaveFilesFromServer to true in clientsettings.json, or type '.clientconfigcreate allowSavefilesFromServer bool true' but be aware of potential security implications!");
                 return;
             }
 
@@ -85,11 +86,11 @@ namespace Vintagestory.ServerMods.WorldEdit
                     textWriter.Close();
                 }
 
-                capi.SendChatMessage(string.Format("Schematic file {0} received and saved", message.Filename));
+                capi.ShowChatMessage(string.Format("Schematic file {0} received and saved", message.Filename));
             }
             catch (IOException e)
             {
-                capi.SendChatMessage("Server sent a schematic file, but failed to save it: " + e.Message);
+                capi.ShowChatMessage("Server sent a schematic file, but failed to save it: " + e.Message);
             }
         }
 
@@ -113,10 +114,10 @@ namespace Vintagestory.ServerMods.WorldEdit
 
                 int schematicMaxUploadSizeKb = capi.Settings.Int.Get("schematicMaxUploadSizeKb", 75);
             
-                // Limit to 50kb
+                // Limit the file size
                 if (bytes / 1024 > schematicMaxUploadSizeKb)
                 {
-                    capi.TriggerIngameError(this, "schematictoolarge", Lang.Get("Importing of schematics above {0} KB disabled.", schematicMaxUploadSizeKb));
+                    capi.TriggerIngameError(this, "schematictoolarge", Lang.Get("Importing of schematics above {0} KB disabled, adjust config schematicMaxUploadSizeKb to change.", schematicMaxUploadSizeKb));
                     return;
                 }
 
@@ -171,11 +172,10 @@ namespace Vintagestory.ServerMods.WorldEdit
                 toolOptionsDialog.Recompose();
                 toolOptionsDialog.UnfocusElements();
             }
-            if (ownWorkspace != null && ownWorkspace.ToolName != null && ownWorkspace.ToolName.Length > 0 && ownWorkspace.ToolsEnabled && toolBarDialog.IsOpened())
+            if (ownWorkspace != null && ownWorkspace.ToolName != null && ownWorkspace.ToolName.Length > 0 && ownWorkspace.ToolsEnabled && toolBarDialog?.IsOpened() == true)
             {
                 OpenToolOptionsDialog("" + ownWorkspace.ToolName);
             }
-
 
             isComposing = false;
         }
@@ -193,6 +193,8 @@ namespace Vintagestory.ServerMods.WorldEdit
 
         private void TriggerWorldEditDialog()
         {
+            if (capi.World.Player.WorldData.CurrentGameMode != EnumGameMode.Creative) return;
+
             try
             {
                 if (toolBarDialog == null || !toolBarDialog.IsOpened())
@@ -267,29 +269,32 @@ namespace Vintagestory.ServerMods.WorldEdit
         {
             AmbientModifier amb = capi.Ambient.CurrentModifiers["serverambient"];
 
+            // no longer used
+            amb.CloudBrightness.Weight = 0;
+            amb.CloudDensity.Weight = 0;
+
             switch (elementCode)
             {
                 case "timeofday":
-                    float time = 0f;
-                    float.TryParse(newValue, out time);
+                    float time = newValue.ToFloat(0);
                     time = time / 24 * capi.World.Calendar.HoursPerDay;
                     capi.SendChatMessage("/time set " + time + ":00");
                     break;
                 case "foglevel":
                     amb.FogDensity.Weight = 1;
-                    amb.FogDensity.Value = float.Parse(newValue) / 2000f;
+                    amb.FogDensity.Value = newValue.ToFloat(0) / 2000f;
                     SendGlobalAmbient();
                     break;
 
                 case "flatfoglevel":
                     amb.FlatFogDensity.Weight = 1;
-                    amb.FlatFogDensity.Value = float.Parse(newValue) / 250f;
+                    amb.FlatFogDensity.Value = newValue.ToFloat() / 250f;
                     SendGlobalAmbient();
                     break;
 
                 case "flatfoglevelypos":
                     amb.FlatFogYPos.Weight = 1;
-                    amb.FlatFogYPos.Value = float.Parse(newValue);
+                    amb.FlatFogYPos.Value = newValue.ToFloat();
                     SendGlobalAmbient();
                     break;
 
@@ -298,41 +303,42 @@ namespace Vintagestory.ServerMods.WorldEdit
                 case "foggreen":
                 case "fogblue":
                     float[] color = amb.FogColor.Value;
-                    if (elementCode == "fogred") color[0] = int.Parse(newValue) / 255f;
-                    if (elementCode == "foggreen") color[1] = int.Parse(newValue) / 255f;
-                    if (elementCode == "fogblue") color[2] = int.Parse(newValue) / 255f;
+                    if (elementCode == "fogred") color[0] = newValue.ToInt() / 255f;
+                    if (elementCode == "foggreen") color[1] = newValue.ToInt() / 255f;
+                    if (elementCode == "fogblue") color[2] = newValue.ToInt() / 255f;
 
                     amb.FogColor.Weight = 1;
                     SendGlobalAmbient();
                     break;
-                case "cloudlevel":
+                case "precipitation":
+                    capi.SendChatMessage("/weather setprecip " + newValue.ToFloat()/100f);
+                    SendGlobalAmbient();
 
-                    amb.CloudDensity.Value = float.Parse(newValue) / 25f - 2;
-                    amb.CloudDensity.Weight = 1;
-
+                    break;
+                case "cloudypos":
+                    amb.CloudYPos.Value = newValue.ToFloat() / 255f;
+                    amb.CloudYPos.Weight = 1;
                     SendGlobalAmbient();
                     break;
-                case "cloudbrightness":
-                    amb.CloudBrightness.Value = float.Parse(newValue) / 100f;
-                    amb.CloudBrightness.Weight = 1;
-                    SendGlobalAmbient();
+                case "weatherpattern":
+                    capi.SendChatMessage("/weather seti " + newValue);
                     break;
                 case "movespeed":
-                    capi.World.Player.WorldData.MoveSpeedMultiplier = float.Parse(newValue);
+                    capi.World.Player.WorldData.MoveSpeedMultiplier = newValue.ToFloat();
                     break;
                 case "axislock":
-                    capi.World.Player.WorldData.FreeMovePlaneLock = (EnumFreeMovAxisLock)int.Parse(newValue);
+                    capi.World.Player.WorldData.FreeMovePlaneLock = (EnumFreeMovAxisLock)newValue.ToInt();
                     clientChannel.SendPacket(new ChangePlayerModePacket() { axisLock = capi.World.Player.WorldData.FreeMovePlaneLock });
                     break;
                 case "pickingrange":
-                    capi.World.Player.WorldData.PickingRange = float.Parse(newValue);
+                    capi.World.Player.WorldData.PickingRange = newValue.ToFloat();
                     clientChannel.SendPacket(new ChangePlayerModePacket() { pickingRange = capi.World.Player.WorldData.PickingRange });
                     break;
                 case "liquidselectable":
                     capi.World.ForceLiquidSelectable = newValue == "1" || newValue == "true";
                     break;
                 case "tooloffsetmode":
-                    int num = 0;
+                    int num;
                     int.TryParse(newValue, out num);
                     ownWorkspace.ToolOffsetMode = (EnumToolOffsetMode)num;
                     capi.SendChatMessage("/we tom " + num);
@@ -350,7 +356,8 @@ namespace Vintagestory.ServerMods.WorldEdit
                     clientChannel.SendPacket(new ChangePlayerModePacket() { fly = fly, noclip = noclip });
                     break;
                 case "overrideambient":
-                    SendGlobalAmbient((newValue == "1" || newValue == "true"));
+                    bool on = (newValue == "1" || newValue == "true");
+                    SendGlobalAmbient(on);
 
                     break;
             }
@@ -371,11 +378,23 @@ namespace Vintagestory.ServerMods.WorldEdit
 
             amb.CloudBrightness.Weight = newWeight;
             amb.CloudDensity.Weight = newWeight;
+            amb.CloudYPos.Weight = newWeight;
 
             string jsoncode = JsonConvert.SerializeObject(amb);
             capi.SendChatMessage("/setambient " + jsoncode);
 
             if (!beforeAmbientOverride) settingsDialog.ReloadValues();
+            
+
+            if (!enable && beforeAmbientOverride) capi.SendChatMessage("/weather setprecip auto");
+            if (enable && !beforeAmbientOverride)
+            {
+                capi.SendChatMessage("/weather acp 0");
+            }
+            if (!enable && beforeAmbientOverride) { 
+                capi.SendChatMessage("/weather acp 1");
+            }
+
             beforeAmbientOverride = enable;
         }
 
@@ -404,7 +423,9 @@ namespace Vintagestory.ServerMods.WorldEdit
                 case "fogblue":
                     return ""+(int)(amb.FogColor.Value[2] * 255);
                 case "cloudlevel":
-                    return ""+ (int)((amb.CloudDensity.Value + 2) * 25);
+                    return ""+ (int)(amb.CloudDensity.Value * 100);
+                case "cloudypos":
+                    return "" + (int)(amb.CloudYPos.Value * 255);
                 case "cloudbrightness":
                     return ""+ (int)(amb.CloudBrightness.Value * 100);
                 case "movespeed":

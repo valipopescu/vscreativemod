@@ -65,9 +65,9 @@ namespace Vintagestory.ServerMods.WorldEdit
         }
 
 
-  /*      private void HandleRotateCommand(int? maybeangle, string centerarg)
+        private void HandleRotateCommand(int? maybeangle, string centerarg)
         {
-            EnumOrigin origin = (centerarg != null && centerarg.StartsWith("c")) ? EnumOrigin.BottomCenter : EnumOrigin.StartPos;
+            //EnumOrigin origin = (centerarg != null && centerarg.StartsWith("c")) ? EnumOrigin.BottomCenter : EnumOrigin.StartPos;
 
             if (workspace.StartMarker == null || workspace.EndMarker == null)
             {
@@ -86,144 +86,18 @@ namespace Vintagestory.ServerMods.WorldEdit
                 }
             }
 
-            BlockPos startm = workspace.StartMarker;
-            BlockPos endm = workspace.EndMarker;
+            EnumOrigin origin = EnumOrigin.BottomCenter;
+            BlockPos mid = (workspace.StartMarker + workspace.EndMarker) / 2;
 
-            Dictionary<BlockPos, ITreeAttribute> blockEntityData = new Dictionary<BlockPos, ITreeAttribute>();
-            BlockPos startPos = new BlockPos(Math.Min(startm.X, endm.X), Math.Min(startm.Y, endm.Y), Math.Min(startm.Z, endm.Z));
-            BlockPos endPos = new BlockPos(Math.Max(startm.X, endm.X), Math.Max(startm.Y, endm.Y), Math.Max(startm.Z, endm.Z));
-            BlockPos curPos = startPos.Copy();
-            BlockPos originPos = origin == EnumOrigin.BottomCenter ? (startm + endm) / 2 : startm;
-            BlockPos newPos = new BlockPos();
-            int dx, dy, dz;
-            int originx = origin == EnumOrigin.BottomCenter ? endPos.X - startPos.X : 0;
-            int originz = origin == EnumOrigin.BottomCenter ? endPos.Z - startPos.Z : 0;
+            BlockSchematic schematic = CopyArea(workspace.StartMarker, workspace.EndMarker);
+            schematic.TransformWhilePacked(sapi.World, origin, angle, null);
+            FillArea(null, workspace.StartMarker, workspace.EndMarker);
 
-            // Clear area
-            while (curPos.X < endPos.X)
-            {
-                curPos.Y = startPos.Y;
-                while (curPos.Y < endPos.Y)
-                {
-                    curPos.Z = startPos.Z;
-                    while (curPos.Z < endPos.Z)
-                    {
-                        BlockEntity be = workspace.revertableBlockAccess.GetBlockEntity(curPos);
-                        if (be != null)
-                        {
-                            TreeAttribute tree = new TreeAttribute();
-                            be.ToTreeAttributes(tree);
-
-                            dx = curPos.X - startPos.X;
-                            dy = curPos.Y - startPos.Y;
-                            dz = curPos.Z - startPos.Z;
-
-                            RotatePosition(ref dx, ref dy, ref dz, angle, originx, originz);
-                            blockEntityData[curPos.AddCopy(dx, dy, dz)] = tree;
-                        }
-
-                        workspace.revertableBlockAccess.SetBlock(0, curPos);
-
-                        curPos.Z++;
-                    }
-
-                    curPos.Y++;
-                }
-                curPos.X++;
-            }
-
-            Vec3d origind = origin == EnumOrigin.BottomCenter ? new Vec3d((int)Math.Ceiling(-(startm.X + endm.X) / 2.0), startm.Y, (int)Math.Ceiling(-(startm.Z + endm.Z) / 2.0)) : startm.ToVec3d();
-
-            // Place rotated version
-            curPos = startPos.Copy();
-            while (curPos.X < endPos.X)
-            {
-                curPos.Y = startPos.Y;
-                while (curPos.Y < endPos.Y)
-                {
-                    curPos.Z = startPos.Z;
-                    while (curPos.Z < endPos.Z)
-                    {
-                        dx = curPos.X - startPos.X + 1;
-                        dy = curPos.Y - startPos.Y;
-                        dz = curPos.Z - startPos.Z + 1;
-                        RotatePosition(ref dx, ref dy, ref dz, angle, originx, originz);
-
-                        newPos.Set(startPos.X + dx, startPos.Y + dy, startPos.Z + dz);
-                        ushort prevBlockId = workspace.revertableBlockAccess.GetBlockId(curPos);
-                        workspace.revertableBlockAccess.SetBlock(prevBlockId, newPos);
-
-                        curPos.Z++;
-                    }
-
-                    curPos.Y++;
-                }
-                curPos.X++;
-            }
-
-            workspace.revertableBlockAccess.Commit();
-            
-            Good(string.Format("Area rotated by {0} degrees", angle));
-            
-
-            dx = 0;
-            dy = 0;
-            dz = 0;
-            RotatePosition(ref dx, ref dy, ref dz, angle, originx, originz);
-            workspace.StartMarker = workspace.StartMarker + new BlockPos(dx, dy, dz);
-
-            dx = endm.X - startm.X;
-            dy = endm.Y - startm.Y;
-            dz = endm.Z - startm.Z;
-            RotatePosition(ref dx, ref dy, ref dz, angle, originx, originz);
-            workspace.EndMarker = workspace.StartMarker + new BlockPos(dx, dy, dz);
-
+            PasteBlockData(schematic, mid, origin);
 
             ResendBlockHighlights();
         }
-        */
-
-
-        void RotatePosition(ref int x, ref int y, ref int z, int angle, int originx, int originz)
-        {
-            x -= originx / 2;
-            z -= originz / 2;
-
-            angle = GameMath.Mod(angle, 360);
-
-            // 90 deg:
-            // xNew = -yOld
-            // yNew = xOld
-
-            // 180 deg:
-            // xNew = -xOld
-            // yNew = -yOld
-
-            // 270 deg:
-            // xNew = yOld
-            // yNew = -xOld
-
-            int oldX = x;
-
-            switch (angle)
-            {
-                case 90:
-                    x = -z;
-                    z = oldX;
-                    break;
-                case 180:
-                    x *= -1;
-                    z *= -1;
-                    break;
-                case 270:
-                    x = z;
-                    z = -oldX;
-                    break;
-            }
-
-            x += originx / 2;
-            z += originz / 2;
-        }
+        
 
 
 
@@ -276,7 +150,7 @@ namespace Vintagestory.ServerMods.WorldEdit
 
                         while (curPos.Z < endPos.Z)
                         {
-                            ushort blockId = workspace.revertableBlockAccess.GetBlockId(curPos);
+                            int blockId = workspace.revertableBlockAccess.GetBlockId(curPos);
 
                             if (workspace.world.Blocks[blockId].EntityClass != null)
                             {
@@ -308,7 +182,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                 val.Value.SetInt("posy", val.Key.Y);
                 val.Value.SetInt("posz", val.Key.Z);
 
-                be?.FromTreeAtributes(val.Value, workspace.world);
+                be?.FromTreeAttributes(val.Value, workspace.world);
             }
 
             if (repeats > 1) Good("Marked area repeated " + repeats + ((repeats > 1) ? " times" : " time"));
@@ -338,6 +212,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                 ResendBlockHighlights();
             }
         }
+
 
         private void HandleMirrorCommand(BlockFacing face, CmdArgs args)
         {
@@ -369,6 +244,8 @@ namespace Vintagestory.ServerMods.WorldEdit
             BlockPos pos = new BlockPos();
             Block block;
 
+            Dictionary<BlockPos, ITreeAttribute> blockEntityData = new Dictionary<BlockPos, ITreeAttribute>();
+
             while (curPos.X < endPos.X)
             {
                 curPos.Y = startPos.Y;
@@ -379,7 +256,7 @@ namespace Vintagestory.ServerMods.WorldEdit
 
                     while (curPos.Z < endPos.Z)
                     {
-                        ushort blockId = workspace.revertableBlockAccess.GetBlockId(curPos);
+                        int blockId = workspace.revertableBlockAccess.GetBlockId(curPos);
 
                         if (dir.Axis == EnumAxis.Y)
                         {
@@ -396,6 +273,15 @@ namespace Vintagestory.ServerMods.WorldEdit
 
                         pos.Set(mX + offset.X, mY + offset.Y, mZ + offset.Z);
 
+                        BlockEntity be = workspace.revertableBlockAccess.GetBlockEntity(curPos);
+                        if (be != null)
+                        {
+                            TreeAttribute tree = new TreeAttribute();
+                            be.ToTreeAttributes(tree);
+                            blockEntityData[pos.Copy()] = tree;
+                        }
+
+
                         workspace.revertableBlockAccess.SetBlock(block.BlockId, pos);
 
                         curPos.Z++;
@@ -407,6 +293,29 @@ namespace Vintagestory.ServerMods.WorldEdit
 
             workspace.revertableBlockAccess.Commit();
             Good("Marked area mirrored " + dir);
+
+            // restore block entity data
+            foreach (var val in blockEntityData)
+            {
+                BlockEntity be = workspace.revertableBlockAccess.GetBlockEntity(val.Key);
+                if (be != null)
+                {
+                    ITreeAttribute tree = val.Value;
+
+                    tree.SetInt("posx", val.Key.X);
+                    tree.SetInt("posy", val.Key.Y);
+                    tree.SetInt("posz", val.Key.Z);
+
+                    if (be is IBlockEntityRotatable)
+                    {
+                        (be as IBlockEntityRotatable).OnTransformed(tree, 0, dir.Axis);
+                    }
+
+                    be.FromTreeAttributes(tree, this.sapi.World);
+
+                    
+                }
+            }
 
             if (selectNewArea)
             {
@@ -581,7 +490,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                     while (curPos.Z < endPos.Z)
                     {
                         newPos.Set(curPos.X + dx, curPos.Y + dy, curPos.Z + dz);
-                        ushort prevBlockId = workspace.revertableBlockAccess.GetBlockId(curPos);
+                        int prevBlockId = workspace.revertableBlockAccess.GetBlockId(curPos);
                         workspace.revertableBlockAccess.SetBlock(prevBlockId, newPos);
                         
                         curPos.Z++;
@@ -605,7 +514,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                     val.Value.SetInt("posy", val.Key.Y);
                     val.Value.SetInt("posz", val.Key.Z);
 
-                    be.FromTreeAtributes(val.Value, this.sapi.World);
+                    be.FromTreeAttributes(val.Value, this.sapi.World);
                 }
             }
 
@@ -613,7 +522,7 @@ namespace Vintagestory.ServerMods.WorldEdit
         }
 
 
-        private int FillArea(ushort blockId, BlockPos start, BlockPos end)
+        private int FillArea(ItemStack blockStack, BlockPos start, BlockPos end)
         {
             int updated = 0;
 
@@ -626,12 +535,15 @@ namespace Vintagestory.ServerMods.WorldEdit
             int dz = finalPos.Z - startPos.Z;
 
             int quantityBlocks = dx * dy * dz;
-            Block block = sapi.World.Blocks[blockId];
-            if (!MayPlace(block, quantityBlocks)) return 0;
+            int blockId = 0;
+            Block block = blockStack?.Block;
+
+            if (block != null) blockId = block.Id;
+            if (block != null && !MayPlace(block, quantityBlocks)) return 0;
 
             if (quantityBlocks > 1000)
             {
-                Good((blockId == 0 ? "Clearing" : "Placing") + " " + (dx * dy * dz) + " blocks...");
+                Good((block == null ? "Clearing" : "Placing") + " " + (dx * dy * dz) + " blocks...");
             }
 
             while (curPos.X < finalPos.X)
@@ -643,7 +555,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                     curPos.Z = startPos.Z;
                     while (curPos.Z < finalPos.Z)
                     {
-                        workspace.revertableBlockAccess.SetBlock(blockId, curPos);
+                        workspace.revertableBlockAccess.SetBlock(blockId, curPos, blockStack);
                         curPos.Z++;
                         updated++;
                     }
